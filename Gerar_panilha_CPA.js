@@ -1,50 +1,32 @@
 /*
- * Gerador em lote das planilhas de Consulta Previa (CPA) de municipios de RO.
+ * Reprocessamento das planilhas de Consulta Prévia (CPA) que falharam no Paraná.
  *
  * Como usar:
- * 1. Acesse http://localhost:3543/implantacao/monitoramento e mantenha a sessao autenticada.
+ * 1. Acesse http://localhost:3543/implantacao/monitoramento e mantenha a sessão autenticada.
  * 2. Abra as Ferramentas do Desenvolvedor (F12) e selecione a aba Console.
  * 3. Cole todo este arquivo no Console e pressione Enter.
- * 4. No painel exibido na pagina, clique em "Escolher pasta e iniciar".
+ * 4. No painel exibido na página, clique em "Escolher pasta e iniciar".
  *
- * O script nao altera dados. Ele usa as mesmas rotas de consulta e exportacao da tela.
+ * O script não altera dados. Ele usa as mesmas rotas de consulta e exportação da tela.
  */
 
 (async () => {
     'use strict';
 
     const MUNICIPIOS = [
-        'Alvorada d\u00b4Oeste',
-        'Campo Novo de Rond\u00f4nia',
-        'Castanheiras',
-        'Corumbiara',
-        'Costa Marques',
-        'Cujubim',
-        'Governador Jorge Teixeira',
-        'Itapu\u00e3 do Oeste',
-        'Jaru',
-        'Monte Negro',
-        'Nova Uni\u00e3o',
-        'Novo Horizonte do Oeste',
-        'Ouro Preto do Oeste',
-        'Pimenta Bueno',
-        'Pimenteiras do Oeste',
-        'Primavera de Rond\u00f4nia',
-        'Rio Crespo',
-        'Santa Luzia d\u00b4Oeste',
-        'S\u00e3o Felipe d\u00b4Oeste',
-        'S\u00e3o Miguel do Guapor\u00e9',
-        'Teixeir\u00f3polis',
-        'Theobroma',
-        'Vale do Anari',
-        'Vale do Para\u00edso',
+        'Cambé',
+        'Ibiporã',
+        'Lapa',
+        'Lindoeste',
+        'Paranaguá',
     ];
 
-    const UF = 'RO';
+    const UF = 'PR';
     const PAUSA_ENTRE_MUNICIPIOS_MS = 1200;
     const TEMPO_LIMITE_REQUISICAO_MS = 10 * 60 * 1000;
-    const TOTAL_TENTATIVAS = 2;
-    const PANEL_ID = 'cpa-ro-download-panel';
+    const TOTAL_TENTATIVAS = 3;
+    const PAUSA_ANTES_DE_REPETIR_MS = 10_000;
+    const PANEL_ID = 'cpa-pr-reprocessamento-panel';
 
     const painelAnterior = document.getElementById(PANEL_ID);
     if (painelAnterior) {
@@ -65,19 +47,19 @@
 
     const configElement = document.getElementById('implantacao-monitoramento-config');
     if (!configElement) {
-        throw new Error('Abra primeiro a pagina /implantacao/monitoramento e tente novamente.');
+        throw new Error('Abra primeiro a página /implantacao/monitoramento e tente novamente.');
     }
 
     let config;
     try {
         config = JSON.parse(configElement.textContent || '{}');
     } catch (error) {
-        throw new Error('Nao foi possivel ler a configuracao da pagina de Monitoramento.');
+        throw new Error('Não foi possível ler a configuração da página de Monitoramento.');
     }
 
     const routes = config.routes || {};
     if (!routes.consultaPrevia || !routes.consultaPreviaExport) {
-        throw new Error('As rotas de Consulta Previa nao estao disponiveis para o usuario autenticado.');
+        throw new Error('As rotas de Consulta Prévia não estão disponíveis para o usuário autenticado.');
     }
 
     const catalogoUf = Array.isArray(config.ufMunicipios)
@@ -110,7 +92,7 @@
     const painel = document.createElement('section');
     painel.id = PANEL_ID;
     painel.setAttribute('role', 'dialog');
-    painel.setAttribute('aria-label', 'Gerador de planilhas CPA de Rondonia');
+    painel.setAttribute('aria-label', 'Reprocessamento de planilhas CPA do Paraná');
     Object.assign(painel.style, {
         position: 'fixed',
         right: '18px',
@@ -131,14 +113,14 @@
     painel.innerHTML = `
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
             <div>
-                <strong style="display:block;font-size:17px">Planilhas CPA - Rond\u00f4nia</strong>
+                <strong style="display:block;font-size:17px">Reprocessar CPA - Paraná</strong>
                 <span data-cpa-resumo style="color:#4b5563"></span>
             </div>
-            <button type="button" data-cpa-fechar title="Fechar" style="border:0;background:transparent;font-size:22px;cursor:pointer">\u00d7</button>
+            <button type="button" data-cpa-fechar title="Fechar" style="border:0;background:transparent;font-size:22px;cursor:pointer">×</button>
         </div>
         <p style="margin:12px 0">
-            Cada planilha conter\u00e1 3 meses antes da CPA, o m\u00eas da CPA,
-            3 meses depois da CPA e o m\u00eas atual. O processamento \u00e9 sequencial.
+            Nova tentativa para os 5 municípios que apresentaram erro no servidor.
+            O processamento é sequencial e fará até 3 tentativas por operação.
         </p>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
             <button type="button" data-cpa-pasta style="padding:8px 12px;cursor:pointer">Escolher pasta e iniciar</button>
@@ -158,7 +140,7 @@
     const cancelarButton = painel.querySelector('[data-cpa-cancelar]');
     const fecharButton = painel.querySelector('[data-cpa-fechar]');
 
-    resumoElement.textContent = `${MUNICIPIOS.length - municipiosNaoEncontrados.length} de ${MUNICIPIOS.length} municipios localizados no cadastro de ${UF}.`;
+    resumoElement.textContent = `${MUNICIPIOS.length - municipiosNaoEncontrados.length} de ${MUNICIPIOS.length} municípios localizados no cadastro de ${UF}.`;
 
     const registrar = (mensagem) => {
         const horario = new Date().toLocaleTimeString('pt-BR');
@@ -167,24 +149,32 @@
     };
 
     if (municipiosNaoEncontrados.length) {
-        registrar(`Nao encontrados: ${municipiosNaoEncontrados.map((item) => item.nomeInformado).join(', ')}`);
+        registrar(`Não encontrados: ${municipiosNaoEncontrados.map((item) => item.nomeInformado).join(', ')}`);
     } else {
-        registrar('Todos os municipios foram localizados. Escolha uma forma de download para iniciar.');
+        registrar('Todos os municípios foram localizados. Escolha uma forma de download para iniciar.');
     }
 
     if (typeof window.showDirectoryPicker !== 'function') {
         pastaButton.disabled = true;
-        pastaButton.title = 'Este navegador nao oferece selecao direta de pasta.';
-        registrar('Selecao de pasta indisponivel. Use o botao "Downloads do navegador".');
+        pastaButton.title = 'Este navegador não oferece seleção direta de pasta.';
+        registrar('Seleção de pasta indisponível. Use o botão "Downloads do navegador".');
     }
 
     const obterMensagemErro = (texto, status) => {
+        if (status === 504 || /Gateway Timeout/i.test(String(texto || ''))) {
+            return 'Erro HTTP 504: o servidor demorou demais para responder.';
+        }
+
+        if (status >= 500) {
+            return `Erro HTTP ${status}: falha interna do servidor ao processar a solicitação.`;
+        }
+
         try {
             const json = texto ? JSON.parse(texto) : {};
             return json.error || json.message || `Erro HTTP ${status}`;
         } catch (error) {
             const mensagem = String(texto || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-            return mensagem || `Erro HTTP ${status}`;
+            return mensagem.slice(0, 500) || `Erro HTTP ${status}`;
         }
     };
 
@@ -230,7 +220,7 @@
         try {
             return texto ? JSON.parse(texto) : {};
         } catch (error) {
-            throw new Error('A consulta retornou uma resposta que nao e JSON. Verifique se a sessao continua autenticada.');
+            throw new Error('A consulta retornou uma resposta que não é JSON. Verifique se a sessão continua autenticada.');
         }
     };
 
@@ -269,8 +259,11 @@
         }
 
         const contentType = response.headers.get('Content-Type') || '';
-        if (/json|text\/html/i.test(contentType)) {
+        if (/json|text\/html|image\//i.test(contentType)) {
             const texto = await response.text();
+            if (/image\//i.test(contentType)) {
+                throw new Error('O servidor retornou uma imagem em vez da planilha Excel.');
+            }
             throw new Error(obterMensagemErro(texto, response.status));
         }
 
@@ -328,8 +321,8 @@
                     throw error;
                 }
 
-                registrar(`${descricao}: tentativa ${tentativa} falhou; repetindo em 2 segundos.`);
-                await aguardar(2000);
+                registrar(`${descricao}: tentativa ${tentativa} falhou; repetindo em 10 segundos.`);
+                await aguardar(PAUSA_ANTES_DE_REPETIR_MS);
             }
         }
 
@@ -347,7 +340,7 @@
                 diretorio = await window.showDirectoryPicker({ mode: 'readwrite' });
             } catch (error) {
                 if (error?.name !== 'AbortError') {
-                    registrar(`Nao foi possivel abrir a pasta: ${error.message}`);
+                    registrar(`Não foi possível abrir a pasta: ${error.message}`);
                 }
                 return;
             }
@@ -368,10 +361,10 @@
         const fila = municipiosResolvidos.filter((item) => item.cidade);
 
         if (!usarPasta) {
-            registrar('Se o navegador solicitar permissao para varios downloads, clique em Permitir.');
+            registrar('Se o navegador solicitar permissão para vários downloads, clique em Permitir.');
         }
 
-        registrar(`Inicio do processamento de ${fila.length} municipio(s).`);
+        registrar(`Início do processamento de ${fila.length} município(s).`);
 
         try {
             for (let indice = 0; indice < fila.length; indice += 1) {
@@ -398,25 +391,35 @@
                     const segundoMesAntes = mesDeslocado(dataCpa, -2);
 
                     if (!terceiroMesAntes || !segundoMesAntes) {
-                        ignorados.push(`${cidade.nome}: data da CPA nao informada`);
-                        registrar(`${identificacao}: ignorado porque nao ha data de liberacao da CPA.`);
+                        ignorados.push(`${cidade.nome}: data da CPA não informada`);
+                        registrar(`${identificacao}: ignorado porque não há data de liberação da CPA.`);
                         progressoElement.value = indice + 1;
                         continue;
                     }
 
-                    const payloadExportacao = {
+                    const payloadConsultaCompleta = {
                         ...payloadBase,
                         mes_inicial: terceiroMesAntes,
                         mes_final: segundoMesAntes,
                     };
-                    registrar(`${identificacao}: CPA ${String(dataCpa).slice(0, 10)}; gerando Excel...`);
+                    registrar(`${identificacao}: CPA ${String(dataCpa).slice(0, 10)}; consultando os períodos da planilha...`);
+                    const consultaCompleta = await executarComTentativas(
+                        () => consultarMunicipio(payloadConsultaCompleta),
+                        `${identificacao} (consulta completa)`
+                    );
+                    const exportToken = String(consultaCompleta?.export_token || '').trim();
+                    if (!exportToken) {
+                        throw new Error('A consulta completa não retornou o token necessário para exportar.');
+                    }
+
+                    registrar(`${identificacao}: consulta concluída; gerando Excel sem repetir as consultas...`);
                     const arquivo = await executarComTentativas(
-                        () => exportarMunicipio(payloadExportacao, cidade),
-                        identificacao
+                        () => exportarMunicipio({ export_token: exportToken }, cidade),
+                        `${identificacao} (exportação)`
                     );
                     await salvarArquivo(arquivo, diretorio);
                     concluidos.push(cidade.nome);
-                    registrar(`${identificacao}: concluido - ${arquivo.nome}`);
+                    registrar(`${identificacao}: concluído - ${arquivo.nome}`);
                 } catch (error) {
                     if (estado.cancelar || error?.name === 'AbortError') {
                         registrar(`${identificacao}: processamento interrompido.`);
@@ -442,7 +445,7 @@
         }
 
         registrar('--- RESUMO ---');
-        registrar(`Concluidos: ${concluidos.length}.`);
+        registrar(`Concluídos: ${concluidos.length}.`);
         registrar(`Ignorados: ${ignorados.length}.`);
         registrar(`Erros: ${erros.length}.`);
         if (ignorados.length) {
@@ -452,7 +455,7 @@
             registrar(`Falhas: ${erros.join(' | ')}`);
         }
         if (estado.cancelar) {
-            registrar('Processamento cancelado pelo usuario.');
+            registrar('Processamento cancelado pelo usuário.');
         } else {
             progressoElement.value = fila.length;
             registrar('Processamento finalizado.');
@@ -465,7 +468,7 @@
         estado.cancelar = true;
         estado.abortController?.abort();
         cancelarButton.disabled = true;
-        registrar('Cancelamento solicitado; aguardando o encerramento da requisicao atual.');
+        registrar('Cancelamento solicitado; aguardando o encerramento da requisição atual.');
     });
     fecharButton.addEventListener('click', () => {
         if (!estado.executando) {
@@ -473,3 +476,5 @@
         }
     });
 })();
+
+
