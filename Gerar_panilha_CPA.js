@@ -1,11 +1,17 @@
 /*
- * Reprocessamento das planilhas de Consulta Prévia (CPA) que falharam no Paraná.
+ * Download sequencial das planilhas de Consulta Prévia (CPA) de 86 municípios da Paraíba.
  *
  * Como usar:
  * 1. Acesse http://localhost:3543/implantacao/monitoramento e mantenha a sessão autenticada.
  * 2. Abra as Ferramentas do Desenvolvedor (F12) e selecione a aba Console.
  * 3. Cole todo este arquivo no Console e pressione Enter.
  * 4. No painel exibido na página, clique em "Escolher pasta e iniciar".
+ *    A seleção de pasta deve ser feita no Chrome/Edge em contexto seguro (HTTPS ou localhost).
+ *    Alternativa: "Usar Downloads do navegador" e permitir vários downloads, se solicitado.
+ *
+ * Fluxo: consultar CPA, consultar os períodos, carregar polígonos e atividades, exportar Excel.
+ * Mantém os períodos do script original: terceiro e segundo mês anteriores à data da CPA.
+ * Municípios sem data de CPA ou não localizados serão informados no resumo.
  *
  * O script não altera dados. Ele usa as mesmas rotas de consulta e exportação da tela.
  */
@@ -14,21 +20,106 @@
     'use strict';
 
     const MUNICIPIOS = [
-        'Cambé',
-        'Ibiporã',
-        'Lapa',
-        'Lindoeste',
-        'Paranaguá',
+        "Água Branca",
+        "Alagoa Grande",
+        "Alagoa Nova",
+        "Alagoinha",
+        "Alhandra",
+        "Aparecida",
+        "Araçagi",
+        "Arara",
+        "Areia",
+        "Areial",
+        "Aroeiras",
+        "Baía da Traição",
+        "Barra de Santa Rosa",
+        "Bayeux",
+        "Belém",
+        "Boa Vista",
+        "Bonito de Santa Fé",
+        "Boqueirão",
+        "Brejo do Cruz",
+        "Caaporã",
+        "Cabaceiras",
+        "Cajazeiras",
+        "Caldas Brandão",
+        "Catolé do Rocha",
+        "Conde",
+        "Congo",
+        "Coremas",
+        "Cruz do Espírito Santo",
+        "Cuité",
+        "Damião",
+        "Desterro",
+        "Dona Inês",
+        "Esperança",
+        "Gurinhém",
+        "Ingá",
+        "Itabaiana",
+        "Itaporanga",
+        "Itapororoca",
+        "Itatuba",
+        "Jacaraú",
+        "Juazeirinho",
+        "Junco do Seridó",
+        "Juripiranga",
+        "Juru",
+        "Lagoa de Dentro",
+        "Lagoa Seca",
+        "Lucena",
+        "Malta",
+        "Mamanguape",
+        "Mari",
+        "Marizópolis",
+        "Mataraca",
+        "Mogeiro",
+        "Monteiro",
+        "Mulungu",
+        "Nova Floresta",
+        "Patos",
+        "Pedra Lavrada",
+        "Pedras de Fogo",
+        "Picuí",
+        "Pilar",
+        "Pilões",
+        "Pirpirituba",
+        "Pitimbu",
+        "Pocinhos",
+        "Pombal",
+        "Prata",
+        "Princesa Isabel",
+        "Queimadas",
+        "Remígio",
+        "Riacho dos Cavalos",
+        "Santa Cruz",
+        "Santa Rita",
+        "São João do Cariri",
+        "São João do Rio do Peixe",
+        "São José do Sabugi",
+        "São Mamede",
+        "São Sebastião de Lagoa de Roça",
+        "São Vicente do Seridó",
+        "Sapé",
+        "Serra Branca",
+        "Solânea",
+        "Sousa",
+        "Teixeira",
+        "Uiraúna",
+        "Umbuzeiro",
     ];
 
-    const UF = 'PR';
+    const UF = 'PB';
     const PAUSA_ENTRE_MUNICIPIOS_MS = 1200;
     const TEMPO_LIMITE_REQUISICAO_MS = 10 * 60 * 1000;
     const TOTAL_TENTATIVAS = 3;
     const PAUSA_ANTES_DE_REPETIR_MS = 10_000;
-    const PANEL_ID = 'cpa-pr-reprocessamento-panel';
+    const PANEL_ID = 'cpa-pb-downloads-panel';
 
     const painelAnterior = document.getElementById(PANEL_ID);
+    if (painelAnterior?.dataset.executando === 'true') {
+        console.warn('O download da Paraíba já está em andamento. Use Cancelar no painel antes de executar novamente.');
+        return;
+    }
     if (painelAnterior) {
         painelAnterior.remove();
     }
@@ -58,8 +149,8 @@
     }
 
     const routes = config.routes || {};
-    if (!routes.consultaPrevia || !routes.consultaPreviaExport) {
-        throw new Error('As rotas de Consulta Prévia não estão disponíveis para o usuário autenticado.');
+    if (!routes.consultaPrevia || !routes.consultaPreviaPoligonos || !routes.consultaPreviaExport) {
+        throw new Error('As rotas de consulta, polígonos e exportação não estão disponíveis. Atualize a página de Monitoramento.');
     }
 
     const catalogoUf = Array.isArray(config.ufMunicipios)
@@ -92,7 +183,7 @@
     const painel = document.createElement('section');
     painel.id = PANEL_ID;
     painel.setAttribute('role', 'dialog');
-    painel.setAttribute('aria-label', 'Reprocessamento de planilhas CPA do Paraná');
+    painel.setAttribute('aria-label', 'Reprocessamento de planilhas CPA da Paraíba');
     Object.assign(painel.style, {
         position: 'fixed',
         right: '18px',
@@ -113,13 +204,13 @@
     painel.innerHTML = `
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
             <div>
-                <strong style="display:block;font-size:17px">Reprocessar CPA - Paraná</strong>
+                <strong style="display:block;font-size:17px">Reprocessar CPA - Paraíba</strong>
                 <span data-cpa-resumo style="color:#4b5563"></span>
             </div>
             <button type="button" data-cpa-fechar title="Fechar" style="border:0;background:transparent;font-size:22px;cursor:pointer">×</button>
         </div>
         <p style="margin:12px 0">
-            Nova tentativa para os 5 municípios que apresentaram erro no servidor.
+            Consulta, carregamento dos polígonos e download de uma planilha por município.
             O processamento é sequencial e fará até 3 tentativas por operação.
         </p>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -178,17 +269,23 @@
         }
     };
 
-    const fetchComLimite = async (url, options) => {
+    const fetchComLimite = async (url, options, lerResposta) => {
         const controller = new AbortController();
         estado.abortController = controller;
         const timeoutId = setTimeout(() => controller.abort(), TEMPO_LIMITE_REQUISICAO_MS);
 
         try {
-            return await fetch(url, {
+            const response = await fetch(url, {
                 ...options,
                 signal: controller.signal,
                 credentials: 'same-origin',
             });
+            return await lerResposta(response);
+        } catch (error) {
+            if (controller.signal.aborted && !estado.cancelar) {
+                throw new Error('Tempo limite de 10 minutos excedido.');
+            }
+            throw error;
         } finally {
             clearTimeout(timeoutId);
             if (estado.abortController === controller) {
@@ -203,15 +300,19 @@
         'X-Requested-With': 'XMLHttpRequest',
     };
 
-    const consultarMunicipio = async (payload) => {
-        const response = await fetchComLimite(routes.consultaPrevia, {
-            method: 'POST',
-            headers: {
-                ...headersBase,
-                Accept: 'application/json',
-            },
-            body: JSON.stringify(payload),
-        });
+    const consultarJson = async (url, payload) => fetchComLimite(url, {
+        method: 'POST',
+        headers: {
+            ...headersBase,
+            Accept: 'application/json',
+        },
+        body: JSON.stringify(payload),
+    }, async (response) => {
+        if (response.redirected || [401, 403, 419].includes(response.status)) {
+            const error = new Error('Sessão expirada ou acesso negado. Entre novamente no NAVI e execute o script.');
+            error.fatal = true;
+            throw error;
+        }
         const texto = await response.text();
         if (!response.ok) {
             throw new Error(obterMensagemErro(texto, response.status));
@@ -222,7 +323,9 @@
         } catch (error) {
             throw new Error('A consulta retornou uma resposta que não é JSON. Verifique se a sessão continua autenticada.');
         }
-    };
+    });
+
+    const consultarMunicipio = (payload) => consultarJson(routes.consultaPrevia, payload);
 
     const nomeArquivoDaResposta = (response, nomeFallback) => {
         const disposition = response.headers.get('Content-Disposition') || '';
@@ -244,36 +347,42 @@
     };
 
     const exportarMunicipio = async (payload, cidade) => {
-        const response = await fetchComLimite(routes.consultaPreviaExport, {
+        return fetchComLimite(routes.consultaPreviaExport, {
             method: 'POST',
             headers: {
                 ...headersBase,
                 Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/json',
             },
             body: JSON.stringify(payload),
-        });
-
-        if (!response.ok) {
-            const texto = await response.text();
-            throw new Error(obterMensagemErro(texto, response.status));
-        }
-
-        const contentType = response.headers.get('Content-Type') || '';
-        if (/json|text\/html|image\//i.test(contentType)) {
-            const texto = await response.text();
-            if (/image\//i.test(contentType)) {
-                throw new Error('O servidor retornou uma imagem em vez da planilha Excel.');
+        }, async (response) => {
+            if (response.redirected || [401, 403, 419].includes(response.status)) {
+                const error = new Error('Sessão expirada ou acesso negado. Entre novamente no NAVI e execute o script.');
+                error.fatal = true;
+                throw error;
             }
-            throw new Error(obterMensagemErro(texto, response.status));
-        }
 
-        const dataAtual = new Date().toISOString().slice(0, 10).replaceAll('-', '');
-        const nomeFallback = `consulta_previa_${normalizarNome(cidade.nome).replaceAll(' ', '_')}_${dataAtual}.xlsx`;
+            if (!response.ok) {
+                const texto = await response.text();
+                throw new Error(obterMensagemErro(texto, response.status));
+            }
 
-        return {
-            blob: await response.blob(),
-            nome: nomeArquivoDaResposta(response, nomeFallback),
-        };
+            const contentType = response.headers.get('Content-Type') || '';
+            if (/json|text\/html|image\//i.test(contentType)) {
+                const texto = await response.text();
+                if (/image\//i.test(contentType)) {
+                    throw new Error('O servidor retornou uma imagem em vez da planilha Excel.');
+                }
+                throw new Error(obterMensagemErro(texto, response.status));
+            }
+
+            const dataAtual = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+            const nomeFallback = `consulta_previa_${normalizarNome(cidade.nome).replaceAll(' ', '_')}_${dataAtual}.xlsx`;
+
+            return {
+                blob: await response.blob(),
+                nome: nomeArquivoDaResposta(response, nomeFallback),
+            };
+        });
     };
 
     const mesDeslocado = (dataCpa, deslocamento) => {
@@ -317,7 +426,7 @@
                 return await acao();
             } catch (error) {
                 ultimoErro = error;
-                if (estado.cancelar || error?.name === 'AbortError' || tentativa === TOTAL_TENTATIVAS) {
+                if (estado.cancelar || error?.fatal || error?.name === 'AbortError' || tentativa === TOTAL_TENTATIVAS) {
                     throw error;
                 }
 
@@ -347,6 +456,7 @@
         }
 
         estado.executando = true;
+        painel.dataset.executando = 'true';
         estado.cancelar = false;
         pastaButton.disabled = true;
         downloadsButton.disabled = true;
@@ -356,7 +466,7 @@
         logElement.textContent = '';
 
         const concluidos = [];
-        const ignorados = [];
+        const ignorados = municipiosNaoEncontrados.map((item) => `${item.nomeInformado}: não encontrado no cadastro de ${UF}`);
         const erros = [];
         const fila = municipiosResolvidos.filter((item) => item.cidade);
 
@@ -365,6 +475,9 @@
         }
 
         registrar(`Início do processamento de ${fila.length} município(s).`);
+        if (municipiosNaoEncontrados.length) {
+            registrar(`Não encontrados: ${municipiosNaoEncontrados.map((item) => item.nomeInformado).join(', ')}`);
+        }
 
         try {
             for (let indice = 0; indice < fila.length; indice += 1) {
@@ -412,14 +525,27 @@
                         throw new Error('A consulta completa não retornou o token necessário para exportar.');
                     }
 
-                    registrar(`${identificacao}: consulta concluída; gerando Excel sem repetir as consultas...`);
+                    registrar(`${identificacao}: carregando polígonos e atividades...`);
+                    const consultaComPoligonos = await executarComTentativas(
+                        () => consultarJson(routes.consultaPreviaPoligonos, { export_token: exportToken }),
+                        `${identificacao} (polígonos)`
+                    );
+                    if (consultaComPoligonos?.poligonos_carregados !== true) {
+                        throw new Error('O servidor não confirmou o carregamento dos polígonos. A exportação não foi solicitada.');
+                    }
+                    const tokenComPoligonos = String(consultaComPoligonos?.export_token || '').trim();
+                    if (!tokenComPoligonos) {
+                        throw new Error('O carregamento dos polígonos não retornou o novo token de exportação.');
+                    }
+
+                    registrar(`${identificacao}: polígonos carregados; gerando Excel...`);
                     const arquivo = await executarComTentativas(
-                        () => exportarMunicipio({ export_token: exportToken }, cidade),
+                        () => exportarMunicipio({ export_token: tokenComPoligonos }, cidade),
                         `${identificacao} (exportação)`
                     );
                     await salvarArquivo(arquivo, diretorio);
                     concluidos.push(cidade.nome);
-                    registrar(`${identificacao}: concluído - ${arquivo.nome}`);
+                    registrar(`${identificacao}: ${diretorio ? 'salvo na pasta' : 'download solicitado ao navegador'} - ${arquivo.nome}`);
                 } catch (error) {
                     if (estado.cancelar || error?.name === 'AbortError') {
                         registrar(`${identificacao}: processamento interrompido.`);
@@ -428,6 +554,11 @@
 
                     erros.push(`${cidade.nome}: ${error.message}`);
                     registrar(`${identificacao}: ERRO - ${error.message}`);
+                    if (error?.fatal) {
+                        registrar('Fila interrompida. Renove a sessão ou confira a permissão antes de tentar novamente.');
+                        estado.cancelar = true;
+                        break;
+                    }
                 }
 
                 progressoElement.value = indice + 1;
@@ -437,6 +568,7 @@
             }
         } finally {
             estado.executando = false;
+            painel.dataset.executando = 'false';
             estado.abortController = null;
             pastaButton.disabled = typeof window.showDirectoryPicker !== 'function';
             downloadsButton.disabled = false;
@@ -449,7 +581,7 @@
         registrar(`Ignorados: ${ignorados.length}.`);
         registrar(`Erros: ${erros.length}.`);
         if (ignorados.length) {
-            registrar(`Sem data de CPA: ${ignorados.join(' | ')}`);
+            registrar(`Municípios ignorados: ${ignorados.join(' | ')}`);
         }
         if (erros.length) {
             registrar(`Falhas: ${erros.join(' | ')}`);
@@ -476,5 +608,3 @@
         }
     });
 })();
-
-
